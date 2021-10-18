@@ -4,6 +4,7 @@ import re
 from ipaddress import IPv4Address, IPv6Address
 
 import pytest
+import validators
 from mimesis import Internet, data
 from mimesis.enums import MimeType, PortRange, TLDType, URLScheme
 from mimesis.exceptions import NonEnumerableError
@@ -66,10 +67,45 @@ class TestInternet(object):
         result = net.url(scheme=scheme)
         assert result.startswith(scheme.value)
 
-    def test_slug(self, net):
-        with pytest.raises(TypeError):
-            net.slug(3)
+    @pytest.mark.parametrize(
+        "port",
+        (
+            PortRange.ALL,
+            PortRange.WELL_KNOWN,
+            PortRange.EPHEMERAL,
+            PortRange.REGISTERED,
+        ),
+    )
+    def test_url_with_port(self, net, port):
+        url = net.url(port=port)
+        port_val = int(url.split(":")[-1].replace("/", ""))
+        port_start, port_end = port.value
+        assert port_start <= port_val <= port_end
 
+    def test_uri(self, net):
+        assert validators.url(net.uri())
+
+    @pytest.mark.parametrize("length", [4, 6, 8, None])
+    def test_query_string(self, net, length):
+        query_string = net.query_string(length)
+        query_params_count = len(query_string.split("&"))
+
+        if length is None:
+            assert 1 <= query_params_count <= 10
+        else:
+            assert query_params_count == length
+
+    @pytest.mark.parametrize("length", [4, 6, 8, None])
+    def test_query_parameters(self, net, length):
+        query_dict = net.query_parameters(length)
+        query_params_count = len(query_dict)
+
+        if length is None:
+            assert 1 <= query_params_count <= 10
+        else:
+            assert query_params_count == length
+
+    def test_slug(self, net):
         with pytest.raises(ValueError):
             net.slug(parts_count=13)
 
@@ -271,6 +307,14 @@ class TestSeededInternet(object):
 
     def test_slug(self, i1, i2):
         assert i1.slug(parts_count=2) == i2.slug(parts_count=2)
+
+    def test_query_string(self, i1, i2):
+        assert i1.query_string(length=2) == i2.query_string(length=2)
+        assert i1.query_string(length=None) == i2.query_string(length=None)
+
+    def test_query_parameters(self, i1, i2):
+        assert i1.query_parameters(length=2) == i2.query_parameters(length=2)
+        assert i1.query_parameters(length=None) == i2.query_parameters(length=None)
 
     def test_ip_v6_object(self, i1, i2):
         assert i1.ip_v6_object() == i2.ip_v6_object()

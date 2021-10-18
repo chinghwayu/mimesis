@@ -3,9 +3,10 @@
 """Provides data related to internet."""
 
 import urllib.error
+import urllib.parse
 import urllib.request
 from ipaddress import IPv4Address, IPv6Address
-from typing import Any, Final, List, Optional, Union
+from typing import Any, Dict, Final, List, Optional, Union
 
 from mimesis.data import (
     EMOJI,
@@ -19,6 +20,7 @@ from mimesis.data import (
 from mimesis.enums import MimeType, PortRange, TLDType, URLScheme
 from mimesis.locales import Locale
 from mimesis.providers.base import BaseProvider
+from mimesis.providers.date import Datetime
 from mimesis.providers.file import File
 from mimesis.providers.text import Text
 from mimesis.typing import Keywords
@@ -41,6 +43,7 @@ class Internet(BaseProvider):
         super().__init__(*args, **kwargs)
         self.file = File(seed=self.seed)
         self.text = Text(locale=Locale.EN, seed=self.seed)
+        self.datetime = Datetime(locale=Locale.EN)
 
     class Meta:
         """Class for metadata."""
@@ -243,7 +246,7 @@ class Internet(BaseProvider):
         """Generate a random hostname without scheme.
 
         :param tld_type: TLDType.
-        :param subdomains: Subdomains (make sure they are valid).
+        :param subdomains: List of subdomains (make sure they are valid).
         :return: Hostname.
         """
         tld = self.tld(tld_type=tld_type)
@@ -255,15 +258,80 @@ class Internet(BaseProvider):
 
         return f"{host}{tld}"
 
-    def url(self, scheme: Optional[URLScheme] = URLScheme.HTTPS, **kwargs: Any) -> str:
+    def url(
+        self,
+        scheme: Optional[URLScheme] = URLScheme.HTTPS,
+        port: Optional[PortRange] = None,
+        tld_type: Optional[TLDType] = None,
+        subdomains: Optional[List[str]] = None,
+    ) -> str:
         """Generate random URL.
 
         :param scheme: Scheme.
-        :param kwargs: Keyword-arguments for :meth:`hostname`
+        :param port: PortRange enum object.
+        :param tld_type: TLDType.
+        :param subdomains: List of subdomains (make sure they are valid).
         :return: URL.
         """
-        _scheme = self.validate_enum(scheme, URLScheme)
-        return f"{_scheme}://{self.hostname(**kwargs)}/"
+        host = self.hostname(tld_type, subdomains)
+        url_scheme = self.validate_enum(scheme, URLScheme)
+
+        url = f"{url_scheme}://{host}"
+
+        if port is not None:
+            url = f"{url}:{self.port(port)}"
+
+        return f"{url}/"
+
+    def uri(
+        self,
+        scheme: Optional[URLScheme] = URLScheme.HTTPS,
+        port: Optional[PortRange] = None,
+        tld_type: Optional[TLDType] = None,
+        subdomains: Optional[List[str]] = None,
+        query_params_count: Optional[int] = None,
+    ) -> str:
+        """Generate a random URI.
+
+        :param scheme: Scheme.
+        :param port: PortRange enum object.
+        :param tld_type: TLDType.
+        :param subdomains: List of subdomains (make sure they are valid).
+        :param query_params_count: Query params.
+        :return: URI.
+        """
+        directory = (
+            self.datetime.date(start=2010, end=self.datetime.CURRENT_YEAR)
+            .strftime("%Y-%m-%d")
+            .replace("-", "/")
+        )
+        url = self.url(scheme, port, tld_type, subdomains)
+        uri = f"{url}{directory}/{self.slug()}"
+
+        if query_params_count:
+            uri += self.query_string(query_params_count)
+
+        return uri
+
+    def query_string(self, length: Optional[int] = None) -> str:
+        """Generate arbitrary query string of given length.
+
+        :param length: Length of query string.
+        :return: Query string.
+        """
+        return urllib.parse.urlencode(self.query_parameters(length))
+
+    def query_parameters(self, length: Optional[int] = None) -> Dict[str, str]:
+        """Generate arbitrary query parameters as a dict.
+
+        :param length: Length of dictionary (key/value pair).
+        :return: Dict of query parameters.
+        """
+
+        if not length:
+            length = self.random.randint(1, 10)
+
+        return dict(zip(self.text.words(length), self.text.words(length)))
 
     def top_level_domain(self, tld_type: Optional[TLDType] = None) -> str:
         """Generates random top level domain.
@@ -307,15 +375,18 @@ class Internet(BaseProvider):
         rng = self.validate_enum(port_range, PortRange)
         return self.random.randint(*rng)
 
-    def slug(self, *, parts_count: int = 5) -> str:
+    def slug(self, parts_count: Optional[int] = None) -> str:
         """Generate a random slug of given parts count.
 
         :param parts_count: Slug's parts count.
         :return: Slug.
         """
 
+        if not parts_count:
+            parts_count = self.random.randint(2, 12)
+
         if parts_count > 12:
-            raise ValueError("Slug's parts count must be parts_count <= 12")
+            raise ValueError("Slug's parts count must be <= 12")
 
         if parts_count < 2:
             raise ValueError("Slug must contain more than 2 parts")
